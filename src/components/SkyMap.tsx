@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useRef, useEffect, useState } from 'react'
-import { Star, Location } from '@/types/astronomy'
+import React, { useRef, useEffect, useState, useMemo } from 'react'
+import { Star, Location, CelestialObject, DeepSkyObject } from '@/types/astronomy'
 import { getStarSize } from '@/utils/astronomyCalculations'
 
 interface SkyMapProps {
@@ -11,6 +11,9 @@ interface SkyMapProps {
   onStarClick: (star: Star) => void
   nightMode: boolean
   loading: boolean
+  showSatellites?: boolean
+  deepSkyObjects?: DeepSkyObject[]
+  satellites?: CelestialObject[]
 }
 
 const SkyMap: React.FC<SkyMapProps> = ({
@@ -19,7 +22,10 @@ const SkyMap: React.FC<SkyMapProps> = ({
   currentTime,
   onStarClick,
   nightMode,
-  loading
+  loading,
+  showSatellites = false,
+  deepSkyObjects = [],
+  satellites: satellitesFromProps = []
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 })
@@ -42,6 +48,34 @@ const SkyMap: React.FC<SkyMapProps> = ({
     window.addEventListener('resize', updateDimensions)
     return () => window.removeEventListener('resize', updateDimensions)
   }, [])
+
+  // Generate simple artificial satellites (demo): positions shift with time
+  const generatedSatellites: CelestialObject[] = useMemo(() => {
+    if (!location) return []
+    const base = currentTime.getTime() / 1000
+    const satDefs = [
+      { id: 'sat-iss', name: 'ISS', magnitude: 1.5 },
+      { id: 'sat-starlink', name: 'Starlink', magnitude: 3.0 },
+      { id: 'sat-hubble', name: 'Hubble', magnitude: 2.0 },
+    ]
+    return satDefs.map((s, idx) => {
+      const azimuth = ((base / 10 + idx * 120) % 360 + 360) % 360
+      const altitude = 20 + 30 * Math.sin((base / 60) + idx)
+      const x = (azimuth / 360) * dimensions.width
+      const y = dimensions.height - ((altitude + 30) / 120) * dimensions.height
+      return {
+        id: s.id,
+        name: s.name,
+        type: 'satellite',
+        x,
+        y,
+        visible: altitude > 0,
+        magnitude: s.magnitude,
+        azimuth,
+        altitude,
+      }
+    })
+  }, [location, currentTime, dimensions])
 
   // Draw the sky map
   useEffect(() => {
@@ -128,10 +162,42 @@ const SkyMap: React.FC<SkyMapProps> = ({
       drawLocationInfo(ctx, location, dimensions)
     }
 
+    // Draw satellites
+    if (showSatellites) {
+      const sats = (satellitesFromProps && satellitesFromProps.length) ? satellitesFromProps : generatedSatellites
+      sats.forEach(sat => {
+        if (!sat.visible) return
+        ctx.fillStyle = '#00e5ff'
+        ctx.beginPath()
+        ctx.arc(sat.x, sat.y, 3, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = nightMode ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)'
+        ctx.font = '12px Inter, sans-serif'
+        ctx.fillText(sat.name, sat.x + 6, sat.y - 6)
+      })
+    }
+
+    // Draw deep-sky objects (simple glyphs)
+    if (deepSkyObjects && deepSkyObjects.length) {
+      deepSkyObjects.forEach(obj => {
+        if (!obj.visible) return
+        const color = obj.objectType === 'galaxy' ? '#a78bfa' : obj.objectType === 'nebula' ? '#34d399' : '#f59e0b'
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        // ellipse marker
+        ctx.ellipse(obj.x, obj.y, 8, 5, 0, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.fillStyle = nightMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)'
+        ctx.font = '11px Inter, sans-serif'
+        ctx.fillText(obj.name, obj.x + 10, obj.y - 6)
+      })
+    }
+
     // Draw time info
     drawTimeInfo(ctx, currentTime, dimensions)
 
-  }, [stars, dimensions, nightMode, hoveredStar, location, currentTime])
+  }, [stars, dimensions, nightMode, hoveredStar, location, currentTime, showSatellites, generatedSatellites, deepSkyObjects, satellitesFromProps])
 
   // Handle mouse events
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {

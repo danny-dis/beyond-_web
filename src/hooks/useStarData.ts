@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Location, Star, StarCatalogEntry, SkyContext } from '@/types/astronomy'
+import { Location, Star, StarCatalogEntry, SkyContext, DeepSkyObject } from '@/types/astronomy'
 import { processStarData } from '@/utils/astronomyCalculations'
-import { getVisibleStarsForLocation } from '@/utils/realAstronomyEngine'
+import { getVisibleStarsForLocation, fetchHygStars } from '@/utils/realAstronomyEngine'
 
 interface UseStarDataReturn {
   stars: Star[]
@@ -33,9 +33,8 @@ export const useStarData = (
         setLoading(true)
         // Loading stars for location
 
-        // Use simplified loading for all devices to ensure compatibility
-        const { getRealStarCatalog } = await import('@/utils/realAstronomyEngine')
-        const allStars = await getRealStarCatalog()
+        // Use HYG provider (stubbed) for broader dataset
+        const allStars = await fetchHygStars()
 
         // Simple filtering that works on all devices
         const visibleStars = allStars.filter(star => {

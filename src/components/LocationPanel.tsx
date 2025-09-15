@@ -55,9 +55,15 @@ const LocationPanel: React.FC<LocationPanelProps> = ({
         console.warn('Nominatim geocoding failed:', nominatimError)
       }
 
-      // Fallback: Try coordinate parsing if it looks like coordinates
-      if (!locationData && manualLocation.includes(',')) {
-        const parts = manualLocation.split(',').map(p => p.trim())
+      // Fallback: Try coordinate parsing for both comma and space separated inputs
+      if (!locationData) {
+        const normalized = manualLocation.trim().replace(/\s+/g, ' ').replace(/\s*,\s*/g, ',')
+        let parts: string[] = []
+        if (normalized.includes(',')) {
+          parts = normalized.split(',').map(p => p.trim())
+        } else if (normalized.includes(' ')) {
+          parts = normalized.split(' ').map(p => p.trim())
+        }
         if (parts.length === 2) {
           const lat = parseFloat(parts[0])
           const lng = parseFloat(parts[1])

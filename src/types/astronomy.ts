@@ -58,6 +58,23 @@ export interface CelestialObject {
   altitude: number
 }
 
+// Deep-sky objects (galaxies, nebulae, clusters)
+export interface DeepSkyObject {
+  id: string
+  name: string
+  catalog?: string // e.g., NGC, IC, Messier
+  objectType: 'galaxy' | 'nebula' | 'cluster' | 'planetary_nebula' | 'other'
+  rightAscension: number // hours
+  declination: number // degrees
+  magnitude?: number
+  sizeArcMin?: number // approximate largest dimension in arcminutes
+  x: number
+  y: number
+  visible: boolean
+  azimuth: number
+  altitude: number
+}
+
 // Time and location context
 export interface SkyContext {
   location: Location

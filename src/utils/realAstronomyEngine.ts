@@ -113,7 +113,8 @@ export const calculateVisibleStars = (
     // Simulate which stars are "up" at this time
     // This is a simplified version - real astronomy would use sidereal time
     const hour = dateTime.getHours()
-    const starHour = (star.ra * 24 / 360) % 24 // Convert RA to hour
+    // RA in our data is already in hours (0-24). Use it directly.
+    const starHour = star.ra % 24
 
     // Stars are "up" for about 12 hours, centered around their transit time
     const timeDiff = Math.abs(hour - starHour)
@@ -137,4 +138,39 @@ export const getVisibleStarsForLocation = async (
 ): Promise<StarCatalogEntry[]> => {
   const allStars = await getRealStarCatalog()
   return calculateVisibleStars(allStars, location, dateTime, minimumMagnitude)
+}
+
+// Provider stubs for large catalogs (to be connected to real sources)
+export interface HygStarRecord extends StarCatalogEntry {}
+
+export interface OpenNgcRecord {
+  id: string
+  name: string
+  catalog?: string
+  type: 'G' | 'N' | 'OC' | 'GC' | 'PN' | 'DN' | 'SNR' | 'AST' | 'QSO' | 'PL' | 'Other'
+  ra: number // hours
+  dec: number // degrees
+  mag?: number
+  size?: number // arcmin
+}
+
+export const fetchHygStars = async (params?: { minMag?: number; maxMag?: number; limit?: number }): Promise<HygStarRecord[]> => {
+  const q = new URLSearchParams()
+  if (params?.minMag !== undefined) q.set('minMag', String(params.minMag))
+  if (params?.maxMag !== undefined) q.set('maxMag', String(params.maxMag))
+  if (params?.limit !== undefined) q.set('limit', String(params.limit))
+  const url = `/api/hyg${q.toString() ? `?${q.toString()}` : ''}`
+  const resp = await fetch(url, { cache: 'no-store' })
+  if (!resp.ok) throw new Error('HYG provider failed')
+  return resp.json()
+}
+
+export const fetchOpenNgc = async (params?: { maxMag?: number; limit?: number }): Promise<OpenNgcRecord[]> => {
+  const q = new URLSearchParams()
+  if (params?.maxMag !== undefined) q.set('maxMag', String(params.maxMag))
+  if (params?.limit !== undefined) q.set('limit', String(params.limit))
+  const url = `/api/opengc${q.toString() ? `?${q.toString()}` : ''}`
+  const resp = await fetch(url, { cache: 'no-store' })
+  if (!resp.ok) throw new Error('OpenNGC provider failed')
+  return resp.json()
 }

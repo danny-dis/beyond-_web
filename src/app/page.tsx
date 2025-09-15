@@ -6,8 +6,11 @@ import SkyMap from '@/components/SkyMap'
 import LocationPanel from '@/components/LocationPanel'
 import StarInfoPanel from '@/components/StarInfoPanel'
 import ControlPanel from '@/components/ControlPanel'
+import ARView from '@/components/ARView'
 import { useLocation } from '@/hooks/useLocation'
 import { useStarData } from '@/hooks/useStarData'
+import { useDeepSkyData } from '@/hooks/useDeepSkyData'
+import { useSatellites } from '@/hooks/useSatellites'
 import { Location as AstroLocation } from '@/types/astronomy'
 
 export default function HomePage() {
@@ -26,11 +29,54 @@ export default function HomePage() {
     return true
   })
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [isLiveTime, setIsLiveTime] = useState(true)
+  const [showSatellites, setShowSatellites] = useState(false)
   
   const { location, loading: locationLoading, error: locationError, requestLocation } = useLocation()
   const [manualLocation, setManualLocation] = useState<AstroLocation | null>(null)
   const currentLocation: AstroLocation | null = manualLocation || location
   const { stars, loading: starsLoading } = useStarData(currentLocation, currentTime)
+  const [showDeepSky, setShowDeepSky] = useState(false)
+  const { objects: deepSkyObjects } = useDeepSkyData(currentLocation, currentTime)
+  const { satellites } = useSatellites(showSatellites, currentLocation, currentTime)
+  const [isOfflineMode, setIsOfflineMode] = useState(false)
+  const [offlinePack, setOfflinePack] = useState<any | null>(null)
+  const [isARMode, setIsARMode] = useState(false)
+
+  // Save current catalog snapshot to localStorage
+  const handleSaveOfflinePack = () => {
+    const pack = {
+      savedAt: new Date().toISOString(),
+      location: currentLocation,
+      time: currentTime.toISOString(),
+      stars,
+      deepSky: deepSkyObjects,
+    }
+    setOfflinePack(pack)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('beyondweb-offline-pack', JSON.stringify(pack))
+    }
+  }
+
+  const handleDownloadOfflinePack = () => {
+    const pack = offlinePack || (typeof window !== 'undefined' ? localStorage.getItem('beyondweb-offline-pack') : null)
+    const data = typeof pack === 'string' ? pack : JSON.stringify(pack || {}, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'beyondweb-offline-pack.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImportOfflinePack = (pack: any) => {
+    setOfflinePack(pack)
+    setIsOfflineMode(true)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('beyondweb-offline-pack', JSON.stringify(pack))
+    }
+  }
 
   // Save theme preference and ensure proper initialization
   useEffect(() => {
@@ -39,13 +85,14 @@ export default function HomePage() {
     }
   }, [nightMode])
 
-  // Update time every minute
+  // Update time every minute when live
   useEffect(() => {
+    if (!isLiveTime) return
     const interval = setInterval(() => {
       setCurrentTime(new Date())
     }, 60000)
     return () => clearInterval(interval)
-  }, [])
+  }, [isLiveTime])
 
   const handleStarClick = (star: any) => {
     setSelectedStar(star)
@@ -125,17 +172,31 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main Sky Map */}
+      {/* Main View */}
       <main className="h-screen">
-        <SkyMap
-          location={currentLocation}
-          stars={stars}
-          currentTime={currentTime}
-          onStarClick={handleStarClick}
-          nightMode={nightMode}
-          loading={starsLoading || locationLoading}
-        />
+        {!isARMode ? (
+          <SkyMap
+            location={currentLocation}
+            stars={isOfflineMode && offlinePack?.stars ? offlinePack.stars : stars}
+            currentTime={currentTime}
+            onStarClick={handleStarClick}
+            nightMode={nightMode}
+            loading={starsLoading || locationLoading}
+            showSatellites={showSatellites}
+            deepSkyObjects={showDeepSky ? (isOfflineMode && offlinePack?.deepSky ? offlinePack.deepSky : deepSkyObjects) : []}
+            satellites={satellites}
+          />
+        ) : (
+          <ARView nightMode={nightMode} onClose={() => setIsARMode(false)} />
+        )}
       </main>
+
+      {/* Deep-sky overlay simple markers */}
+      {showDeepSky && (
+        <div className="pointer-events-none absolute inset-0">
+          {/* Placeholder: deep-sky rendering occurred inside SkyMap if moved later */}
+        </div>
+      )}
 
       {/* Location Panel */}
       <LocationPanel
@@ -151,8 +212,21 @@ export default function HomePage() {
       <ControlPanel
         currentTime={currentTime}
         onTimeChange={setCurrentTime}
+        isLiveTime={isLiveTime}
+        onLiveTimeChange={setIsLiveTime}
         nightMode={nightMode}
         onNightModeChange={setNightMode}
+        showSatellites={showSatellites}
+        onShowSatellitesChange={setShowSatellites}
+        showDeepSky={showDeepSky}
+        onShowDeepSkyChange={setShowDeepSky}
+        isOfflineMode={isOfflineMode}
+        onOfflineModeChange={setIsOfflineMode}
+        onSaveOfflinePack={handleSaveOfflinePack}
+        onDownloadOfflinePack={handleDownloadOfflinePack}
+        onImportOfflinePack={handleImportOfflinePack}
+        isARMode={isARMode}
+        onARModeChange={setIsARMode}
         visible={showSettings}
         onClose={() => setShowSettings(false)}
       />
