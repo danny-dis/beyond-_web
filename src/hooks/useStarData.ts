@@ -4,7 +4,14 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Location, Star, StarCatalogEntry, SkyContext, CelestialObject } from '@/types/astronomy'
 import { processStarData } from '@/utils/astronomyCalculations'
 import { fetchHygStars } from '@/utils/realAstronomyEngine'
-import { getSolarSystemObjects } from '@/utils/solarSystem'
+import { 
+  calculateStarPosition, 
+  calculatePlanetPosition,
+  calculateMoonPosition,
+  calculateSunPosition,
+  getStarColor
+} from '@/utils/astrometry'
+import * as Astronomy from 'astronomy-engine'
 
 interface UseStarDataReturn {
   stars: Star[]
@@ -14,6 +21,7 @@ interface UseStarDataReturn {
   totalStars: number
   visibleStars: number
   lastUpdated: Date | null
+  engine: 'astronomy-engine' | 'fallback'
 }
 
 export const useStarData = (
@@ -27,6 +35,7 @@ export const useStarData = (
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [useEngine, setUseEngine] = useState(true)
 
   // Load star catalog from HYG API
   useEffect(() => {
@@ -42,7 +51,6 @@ export const useStarData = (
         setLoading(true)
         setError(null)
 
-        // Fetch from our local-backed API
         const allStars = await fetchHygStars({ 
           minMag: -2, 
           maxMag: Math.max(minimumMagnitude, 6.5), 
@@ -71,7 +79,6 @@ export const useStarData = (
 
     loadStarCatalog()
     
-    // Reload every 5 minutes to catch time-based visibility changes
     const interval = setInterval(loadStarCatalog, 5 * 60 * 1000)
     
     return () => {
@@ -80,7 +87,7 @@ export const useStarData = (
     }
   }, [location?.latitude, location?.longitude, minimumMagnitude])
 
-  // Process star data when location, time, or catalog changes
+  // Process star data using astronomy-engine when possible
   const stars = useMemo(() => {
     if (!location || starCatalog.length === 0) return []
 
@@ -91,23 +98,146 @@ export const useStarData = (
     }
 
     try {
-      return processStarData(starCatalog, context, screenWidth, screenHeight, minimumMagnitude)
+      if (useEngine) {
+        // Use astronomy-engine for research-grade positions
+        const processedStars: Star[] = []
+        
+        for (const catalogStar of starCatalog) {
+          try {
+            // Calculate position with proper motion propagation
+            const pos = calculateStarPosition(
+              {
+                name: catalogStar.name,
+                ra: catalogStar.ra,
+                dec: catalogStar.dec,
+                pmra: catalogStar.pmra,
+                pmdec: catalogStar.pmdec,
+                plx: catalogStar.plx,
+                rv: catalogStar.rv,
+                mag: catalogStar.mag,
+                spect: catalogStar.spectralClass,
+                dist: catalogStar.distance,
+                con: catalogStar.constellation
+              },
+              currentTime,
+              location.latitude,
+              location.longitude,
+              0,
+              screenWidth,
+              screenHeight
+            )
+            
+            if (pos) {
+              processedStars.push({
+                id: catalogStar.id,
+                name: catalogStar.name,
+                commonName: catalogStar.commonName,
+                constellation: catalogStar.constellation,
+                rightAscension: catalogStar.ra,
+                declination: catalogStar.dec,
+                magnitude: catalogStar.mag,
+                spectralClass: catalogStar.spectralClass,
+                temperature: catalogStar.temp,
+                distance: catalogStar.distance,
+                color: getStarColor(catalogStar.spectralClass),
+                x: pos.x,
+                y: pos.y,
+                visible: pos.visible,
+                azimuth: pos.az,
+                altitude: pos.alt
+              })
+            }
+          } catch {
+            // Skip stars that fail calculation
+          }
+        }
+        
+        return processedStars
+      } else {
+        // Fallback to simple calculations
+        return processStarData(starCatalog, context, screenWidth, screenHeight, minimumMagnitude)
+      }
     } catch (err) {
       console.error('Error processing star data:', err)
-      return []
+      setUseEngine(false) // Switch to fallback on error
+      return processStarData(starCatalog, context, screenWidth, screenHeight, minimumMagnitude)
     }
-  }, [location, currentTime, starCatalog, screenWidth, screenHeight, minimumMagnitude])
+  }, [location, currentTime, starCatalog, screenWidth, screenHeight, minimumMagnitude, useEngine])
 
-  // Calculate solar system objects
+  // Calculate solar system objects using astronomy-engine
   const solarSystem = useMemo(() => {
     if (!location) return []
+    
     try {
-      return getSolarSystemObjects(location, currentTime)
+      const objects: CelestialObject[] = []
+      
+      // Sun
+      const sun = calculateSunPosition(currentTime, location.latitude, location.longitude)
+      if (sun) {
+        objects.push({
+          id: 'sun',
+          name: 'Sun',
+          type: 'planet',
+          x: (sun.az / 360) * screenWidth,
+          y: screenHeight - ((sun.alt + 30) / 120) * screenHeight,
+          visible: sun.visible,
+          magnitude: sun.mag,
+          azimuth: sun.az,
+          altitude: sun.alt,
+          phase: 1
+        })
+      }
+      
+      // Moon
+      const moon = calculateMoonPosition(currentTime, location.latitude, location.longitude)
+      if (moon) {
+        objects.push({
+          id: 'moon',
+          name: 'Moon',
+          type: 'moon',
+          x: (moon.az / 360) * screenWidth,
+          y: screenHeight - ((moon.alt + 30) / 120) * screenHeight,
+          visible: moon.visible,
+          magnitude: moon.mag,
+          azimuth: moon.az,
+          altitude: moon.alt,
+          phase: moon.phase
+        })
+      }
+      
+      // Planets
+      const planetBodies = [
+        { body: Astronomy.Body.Mercury, name: 'Mercury' },
+        { body: Astronomy.Body.Venus, name: 'Venus' },
+        { body: Astronomy.Body.Mars, name: 'Mars' },
+        { body: Astronomy.Body.Jupiter, name: 'Jupiter' },
+        { body: Astronomy.Body.Saturn, name: 'Saturn' },
+      ]
+      
+      for (const { body, name } of planetBodies) {
+        const planet = calculatePlanetPosition(body, currentTime, location.latitude, location.longitude)
+        if (planet) {
+          objects.push({
+            id: name.toLowerCase(),
+            name,
+            type: 'planet',
+            x: (planet.az / 360) * screenWidth,
+            y: screenHeight - ((planet.alt + 30) / 120) * screenHeight,
+            visible: planet.visible,
+            magnitude: planet.mag,
+            azimuth: planet.az,
+            altitude: planet.alt,
+            phase: planet.phase
+          })
+        }
+      }
+      
+      return objects
     } catch (err) {
       console.error('Error calculating solar system:', err)
       return []
     }
-  }, [location, currentTime])
+  }, [location, currentTime, screenWidth, screenHeight])
 
   const visibleStars = stars.filter(star => star.visible).length
 
@@ -118,7 +248,8 @@ export const useStarData = (
     error,
     totalStars: starCatalog.length,
     visibleStars,
-    lastUpdated
+    lastUpdated,
+    engine: useEngine ? 'astronomy-engine' : 'fallback'
   }
 }
 

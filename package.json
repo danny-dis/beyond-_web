@@ -1,6 +1,6 @@
 {
   "name": "beyond-web",
-    "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Beyond - Web-based AR Star Gazing Application",
   "private": true,
   "scripts": {
@@ -13,18 +13,19 @@
     "install-legacy": "npm install --legacy-peer-deps"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "typescript": "5.5.4",
     "@types/node": "20.14.15",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
-    "tailwindcss": "3.4.7",
+    "astronomy-engine": "^2.1.19",
     "autoprefixer": "10.4.19",
-    "postcss": "8.4.40",
+    "date-fns": "3.6.0",
     "lucide-react": "0.427.0",
-    "date-fns": "3.6.0"
+    "next": "14.2.5",
+    "postcss": "8.4.40",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "3.4.7",
+    "typescript": "5.5.4"
   },
   "devDependencies": {
     "eslint": "8.57.0",

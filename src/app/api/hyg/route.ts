@@ -12,10 +12,8 @@ async function getHygCsv(minMag: number, maxMag: number, limit: number): Promise
   let csv: string
   
   try {
-    // Try local first - fast and reliable
     csv = readFileSync(LOCAL_HYG_PATH, 'utf-8')
   } catch {
-    // Fallback to remote
     try {
       const resp = await fetch(REMOTE_HYG_URL, { next: { revalidate: 86400 } })
       if (!resp.ok) throw new Error('Remote HYG failed')
@@ -39,6 +37,10 @@ async function getHygCsv(minMag: number, maxMag: number, limit: number): Promise
     con: cols.indexOf('con'),
     bayer: cols.indexOf('bayer'),
     hd: cols.indexOf('hd'),
+    pmra: cols.indexOf('pmra'),
+    pmdec: cols.indexOf('pmdec'),
+    rv: cols.indexOf('rv'),
+    plx: cols.indexOf('plx'),
   }
 
   const results: StarCatalogEntry[] = []
@@ -52,6 +54,12 @@ async function getHygCsv(minMag: number, maxMag: number, limit: number): Promise
     if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
     const dist = parseFloat(parts[idx.dist] || '')
     
+    // Parse proper motion, radial velocity, and parallax for astronomy-engine
+    const pmra = parseFloat(parts[idx.pmra] || '')
+    const pmdec = parseFloat(parts[idx.pmdec] || '')
+    const rv = parseFloat(parts[idx.rv] || '')
+    const plx = parseFloat(parts[idx.plx] || '')
+    
     results.push({
       id: String(parts[idx.id]) || `hyg-${results.length}`,
       name: parts[idx.name] || `HD ${parts[idx.hd] || ''}`,
@@ -61,6 +69,10 @@ async function getHygCsv(minMag: number, maxMag: number, limit: number): Promise
       mag: Number.isFinite(mag) ? mag : 99,
       spectralClass: parts[idx.spect] || 'G',
       distance: Number.isFinite(dist) && dist > 0 ? dist : undefined,
+      pmra: Number.isFinite(pmra) ? pmra : undefined,
+      pmdec: Number.isFinite(pmdec) ? pmdec : undefined,
+      rv: Number.isFinite(rv) ? rv : undefined,
+      plx: Number.isFinite(plx) ? plx : undefined,
     })
     if (results.length >= limit) break
   }
@@ -98,7 +110,6 @@ export async function GET(req: NextRequest) {
   try {
     let stars = await getHygCsv(minMag, maxMag, limit)
     
-    // Filter by constellation if requested
     if (constellation) {
       stars = stars.filter(s => s.constellation?.toLowerCase() === constellation.toLowerCase())
     }

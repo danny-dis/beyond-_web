@@ -94,6 +94,10 @@ export interface StarCatalogEntry {
   spectralClass: string
   temp?: number
   distance?: number
+  pmra?: number   // proper motion in RA*cos(dec) (mas/yr)
+  pmdec?: number  // proper motion in Dec (mas/yr)
+  rv?: number     // radial velocity (km/s)
+  plx?: number    // parallax (mas)
 }
 
 // Wikipedia data for educational content
