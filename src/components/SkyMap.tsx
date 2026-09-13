@@ -7,6 +7,7 @@ import { getStarSize } from '@/utils/astronomyCalculations'
 interface SkyMapProps {
   location: Location | null
   stars: Star[]
+  solarSystem: CelestialObject[]
   currentTime: Date
   onStarClick: (star: Star) => void
   nightMode: boolean
@@ -19,6 +20,7 @@ interface SkyMapProps {
 const SkyMap: React.FC<SkyMapProps> = ({
   location,
   stars,
+  solarSystem,
   currentTime,
   onStarClick,
   nightMode,
@@ -35,7 +37,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
-  // Update canvas dimensions on resize
   useEffect(() => {
     const updateDimensions = () => {
       setDimensions({
@@ -49,7 +50,7 @@ const SkyMap: React.FC<SkyMapProps> = ({
     return () => window.removeEventListener('resize', updateDimensions)
   }, [])
 
-  // Generate simple artificial satellites (demo): positions shift with time
+  // Generate artificial satellites (demo)
   const generatedSatellites: CelestialObject[] = useMemo(() => {
     if (!location) return []
     const base = currentTime.getTime() / 1000
@@ -85,7 +86,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Set canvas size
     canvas.width = dimensions.width
     canvas.height = dimensions.height
 
@@ -112,7 +112,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
     stars.forEach(star => {
       if (!star.visible) return
 
-      // Make stars bigger on mobile
       const isMobile = dimensions.width < 768
       const baseSize = getStarSize(star.magnitude)
       const size = isMobile ? Math.max(baseSize * 1.5, 4) : baseSize
@@ -121,7 +120,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
       // Star glow effect
       const glowSize = size * (isMobile ? 3 : 2)
       const glowGradient = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, glowSize)
-      // Convert hex color to rgba for proper alpha
       const hexToRgba = (hex: string, alpha: number) => {
         const r = parseInt(hex.slice(1, 3), 16)
         const g = parseInt(hex.slice(3, 5), 16)
@@ -136,7 +134,7 @@ const SkyMap: React.FC<SkyMapProps> = ({
       ctx.arc(star.x, star.y, glowSize, 0, Math.PI * 2)
       ctx.fill()
 
-      // Star core - make more visible
+      // Star core
       ctx.fillStyle = star.color
       ctx.globalAlpha = Math.max(opacity, 0.6)
       ctx.beginPath()
@@ -154,8 +152,75 @@ const SkyMap: React.FC<SkyMapProps> = ({
       }
     })
 
-    // Draw constellation lines (simplified)
+    // Draw constellation lines
     drawConstellationLines(ctx, stars)
+
+    // Draw solar system objects (Sun, Moon, planets)
+    solarSystem.forEach(obj => {
+      if (!obj.visible) return
+      
+      // Convert az/alt to screen coordinates
+      const x = (obj.azimuth / 360) * dimensions.width
+      const y = dimensions.height - ((obj.altitude + 30) / 120) * dimensions.height
+
+      // Draw Sun with glow
+      if (obj.id === 'sun') {
+        ctx.fillStyle = '#FDB813'
+        ctx.shadowBlur = 30
+        ctx.shadowColor = '#FDB813'
+        ctx.beginPath()
+        ctx.arc(x, y, 14, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.shadowBlur = 0
+        ctx.fillStyle = '#FFF'
+        ctx.font = 'bold 11px Inter, sans-serif'
+        ctx.fillText('Sun', x + 18, y - 8)
+        return
+      }
+
+      // Draw Moon with phase
+      if (obj.id === 'moon') {
+        const moonSize = 12
+        ctx.fillStyle = '#E8E8E8'
+        ctx.beginPath()
+        ctx.arc(x, y, moonSize, 0, Math.PI * 2)
+        ctx.fill()
+        
+        // Moon phase shadow
+        if (obj.phase !== undefined) {
+          ctx.fillStyle = '#1a1a2e'
+          const phaseOffset = (obj.phase - 0.5) * moonSize * 2
+          ctx.beginPath()
+          ctx.ellipse(x + phaseOffset * 0.3, y, Math.abs(phaseOffset), moonSize, 0, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        
+        ctx.fillStyle = '#CCC'
+        ctx.font = '11px Inter, sans-serif'
+        ctx.fillText('Moon', x + 16, y - 6)
+        return
+      }
+
+      // Draw planets
+      const planetColors: Record<string, string> = {
+        mercury: '#B5B5B5',
+        venus: '#FFE4B5',
+        mars: '#FF6B4A',
+        jupiter: '#FFD700',
+        saturn: '#F4A460'
+      }
+      
+      const planetSize = Math.max(4, 10 - Math.max(-2, obj.magnitude) * 0.5)
+      ctx.fillStyle = planetColors[obj.id] || '#FFF'
+      ctx.beginPath()
+      ctx.arc(x, y, planetSize, 0, Math.PI * 2)
+      ctx.fill()
+      
+      // Planet label
+      ctx.fillStyle = nightMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)'
+      ctx.font = '11px Inter, sans-serif'
+      ctx.fillText(obj.name, x + planetSize + 4, y - planetSize)
+    })
 
     // Draw location info
     if (location) {
@@ -177,7 +242,7 @@ const SkyMap: React.FC<SkyMapProps> = ({
       })
     }
 
-    // Draw deep-sky objects (simple glyphs)
+    // Draw deep-sky objects
     if (deepSkyObjects && deepSkyObjects.length) {
       deepSkyObjects.forEach(obj => {
         if (!obj.visible) return
@@ -185,7 +250,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
         ctx.strokeStyle = color
         ctx.lineWidth = 1.5
         ctx.beginPath()
-        // ellipse marker
         ctx.ellipse(obj.x, obj.y, 8, 5, 0, 0, Math.PI * 2)
         ctx.stroke()
         ctx.fillStyle = nightMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)'
@@ -197,9 +261,8 @@ const SkyMap: React.FC<SkyMapProps> = ({
     // Draw time info
     drawTimeInfo(ctx, currentTime, dimensions)
 
-  }, [stars, dimensions, nightMode, hoveredStar, location, currentTime, showSatellites, generatedSatellites, deepSkyObjects, satellitesFromProps])
+  }, [stars, solarSystem, dimensions, nightMode, hoveredStar, location, currentTime, showSatellites, generatedSatellites, deepSkyObjects, satellitesFromProps])
 
-  // Handle mouse events
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
     setIsDragging(true)
     setDragStart({ x: event.clientX, y: event.clientY })
@@ -215,7 +278,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
 
     setMousePos({ x, y })
 
-    // Handle dragging
     if (isDragging) {
       const deltaX = event.clientX - dragStart.x
       const deltaY = event.clientY - dragStart.y
@@ -229,7 +291,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
       return
     }
 
-    // Find star under cursor (only when not dragging)
     const clickedStar = stars.find(star => {
       if (!star.visible) return false
       const distance = Math.sqrt((star.x - x) ** 2 + (star.y - y) ** 2)
@@ -249,7 +310,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
     }
   }
 
-  // Handle touch events for mobile
   const handleTouch = (event: React.TouchEvent<HTMLCanvasElement>) => {
     event.preventDefault()
     const canvas = canvasRef.current
@@ -260,7 +320,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
     const x = touch.clientX - rect.left
     const y = touch.clientY - rect.top
 
-    // Find star under touch
     const touchedStar = stars.find(star => {
       if (!star.visible) return false
       const distance = Math.sqrt((star.x - x) ** 2 + (star.y - y) ** 2)
@@ -290,7 +349,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
         style={{ filter: nightMode ? 'hue-rotate(0deg)' : 'none' }}
       />
       
-      {/* Loading overlay */}
       {loading && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
           <div className="bg-space-dark p-4 rounded-lg flex items-center space-x-3">
@@ -300,7 +358,6 @@ const SkyMap: React.FC<SkyMapProps> = ({
         </div>
       )}
 
-      {/* Star tooltip */}
       {hoveredStar && (
         <div 
           className="absolute bg-black bg-opacity-80 text-white p-2 rounded-lg pointer-events-none z-10 text-sm"
@@ -322,45 +379,25 @@ const SkyMap: React.FC<SkyMapProps> = ({
         </div>
       )}
 
-      {/* Star count info - moved up and made compact */}
       <div className={`star-count-info absolute top-16 sm:top-20 left-2 sm:left-4 ${nightMode ? 'bg-black bg-opacity-50 text-white' : 'bg-white bg-opacity-80 text-gray-800 border border-gray-300'} p-2 rounded-lg text-xs sm:text-sm max-w-xs`}>
         <div className="flex items-center space-x-2">
           <span className="font-medium">⭐ {stars.filter(s => s.visible).length}</span>
           <span className={nightMode ? "text-gray-400" : "text-gray-600"}>of {stars.length}</span>
-          {skyOffset.azimuth !== 0 || skyOffset.altitude !== 0 && (
-            <span className={`text-xs ${nightMode ? "text-gray-500" : "text-gray-500"}`}>
-              {skyOffset.azimuth.toFixed(0)}°/{skyOffset.altitude.toFixed(0)}°
-            </span>
-          )}
         </div>
-        {skyOffset.azimuth === 0 && skyOffset.altitude === 0 && (
-          <div className={`text-xs mt-1 ${nightMode ? "text-gray-500" : "text-gray-600"}`}>
-            Drag to explore
-          </div>
-        )}
+        <div className={`text-xs mt-1 ${nightMode ? "text-gray-500" : "text-gray-600"}`}>
+          Drag to explore • Click stars for info
+        </div>
       </div>
     </div>
   )
 }
 
-// Helper function to draw constellation lines
 const drawConstellationLines = (ctx: CanvasRenderingContext2D, stars: Star[]) => {
-  // Simplified constellation lines for major constellations
   const constellationLines = [
-    // Big Dipper
-    ['Dubhe', 'Merak'],
-    ['Merak', 'Phecda'],
-    ['Phecda', 'Megrez'],
-    ['Megrez', 'Alioth'],
-    ['Alioth', 'Mizar'],
-    ['Mizar', 'Alkaid'],
-    
-    // Orion
-    ['Betelgeuse', 'Bellatrix'],
-    ['Bellatrix', 'Mintaka'],
-    ['Mintaka', 'Alnilam'],
-    ['Alnilam', 'Alnitak'],
-    ['Betelgeuse', 'Rigel']
+    ['Dubhe', 'Merak'], ['Merak', 'Phecda'], ['Phecda', 'Megrez'],
+    ['Megrez', 'Alioth'], ['Alioth', 'Mizar'], ['Mizar', 'Alkaid'],
+    ['Betelgeuse', 'Bellatrix'], ['Bellatrix', 'Mintaka'], ['Mintaka', 'Alnilam'],
+    ['Alnilam', 'Alnitak'], ['Betelgeuse', 'Rigel']
   ]
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
@@ -379,23 +416,18 @@ const drawConstellationLines = (ctx: CanvasRenderingContext2D, stars: Star[]) =>
   })
 }
 
-// Helper function to draw location info
 const drawLocationInfo = (ctx: CanvasRenderingContext2D, location: Location, dimensions: { width: number, height: number }) => {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
   ctx.font = '14px Inter, sans-serif'
-  
   const locationText = location.city 
     ? `${location.city}, ${location.country}`
     : `${location.latitude.toFixed(2)}°, ${location.longitude.toFixed(2)}°`
-  
   ctx.fillText(locationText, 20, dimensions.height - 60)
 }
 
-// Helper function to draw time info
 const drawTimeInfo = (ctx: CanvasRenderingContext2D, currentTime: Date, dimensions: { width: number, height: number }) => {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
   ctx.font = '14px Inter, sans-serif'
-  
   const timeText = currentTime.toLocaleString()
   ctx.fillText(timeText, 20, dimensions.height - 40)
 }

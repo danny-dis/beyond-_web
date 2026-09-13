@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Star, MapPin, Clock, Info, Settings, Moon } from 'lucide-react'
+import { Star, MapPin, Clock, Info, Settings, Moon, X } from 'lucide-react'
 import SkyMap from '@/components/SkyMap'
 import LocationPanel from '@/components/LocationPanel'
 import StarInfoPanel from '@/components/StarInfoPanel'
@@ -10,24 +10,15 @@ import ARView from '@/components/ARView'
 import { useLocation } from '@/hooks/useLocation'
 import { useStarData } from '@/hooks/useStarData'
 import { useDeepSkyData } from '@/hooks/useDeepSkyData'
-import { useSatellites } from '@/hooks/useSatellites'
 import { Location as AstroLocation } from '@/types/astronomy'
+
+export const dynamic = 'force-dynamic'
 
 export default function HomePage() {
   const [selectedStar, setSelectedStar] = useState<any>(null)
   const [showInfo, setShowInfo] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [nightMode, setNightMode] = useState(() => {
-    // Set night mode as default for astronomy app
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('beyondweb-theme')
-      if (saved) {
-        return saved === 'night'
-      }
-    }
-    // Default to night mode for astronomy
-    return true
-  })
+  const [nightMode, setNightMode] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isLiveTime, setIsLiveTime] = useState(true)
   const [showSatellites, setShowSatellites] = useState(false)
@@ -35,15 +26,23 @@ export default function HomePage() {
   const { location, loading: locationLoading, error: locationError, requestLocation } = useLocation()
   const [manualLocation, setManualLocation] = useState<AstroLocation | null>(null)
   const currentLocation: AstroLocation | null = manualLocation || location
-  const { stars, loading: starsLoading } = useStarData(currentLocation, currentTime)
+  
+  const { 
+    stars, 
+    solarSystem,
+    loading: starsLoading, 
+    error: starsError,
+    totalStars,
+    visibleStars 
+  } = useStarData(currentLocation, currentTime)
+  
   const [showDeepSky, setShowDeepSky] = useState(false)
-  const { objects: deepSkyObjects } = useDeepSkyData(currentLocation, currentTime)
-  const { satellites } = useSatellites(showSatellites, currentLocation, currentTime)
+  const { objects: deepSkyObjects, loading: deepSkyLoading } = useDeepSkyData(currentLocation, currentTime)
+  
   const [isOfflineMode, setIsOfflineMode] = useState(false)
   const [offlinePack, setOfflinePack] = useState<any | null>(null)
   const [isARMode, setIsARMode] = useState(false)
 
-  // Save current catalog snapshot to localStorage
   const handleSaveOfflinePack = () => {
     const pack = {
       savedAt: new Date().toISOString(),
@@ -78,14 +77,12 @@ export default function HomePage() {
     }
   }
 
-  // Save theme preference and ensure proper initialization
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('beyondweb-theme', nightMode ? 'night' : 'light')
     }
   }, [nightMode])
 
-  // Update time every minute when live
   useEffect(() => {
     if (!isLiveTime) return
     const interval = setInterval(() => {
@@ -103,11 +100,13 @@ export default function HomePage() {
     setManualLocation(newLocation)
   }
 
-
+  const handleCloseInfo = () => {
+    setShowInfo(false)
+    setSelectedStar(null)
+  }
 
   return (
     <div className={`min-h-screen relative ${nightMode ? 'night-mode bg-space-dark' : 'light-mode bg-gray-100'}`}>
-      {/* Header */}
       <header className="absolute top-0 left-0 right-0 z-50 p-2 sm:p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-1 sm:space-x-2">
@@ -115,7 +114,6 @@ export default function HomePage() {
             <h1 className={`text-lg sm:text-2xl font-bold ${nightMode ? 'text-white' : 'text-gray-800'}`}>Beyond</h1>
             <span className={`text-xs sm:text-sm ${nightMode ? 'text-gray-400' : 'text-gray-600'}`}>Web</span>
 
-            {/* Location Display in Header */}
             {currentLocation && (
               <div className={`hidden sm:flex items-center ml-4 px-2 py-1 rounded-lg ${nightMode ? 'bg-black bg-opacity-40' : 'bg-white bg-opacity-80 border border-gray-300'}`}>
                 <MapPin className={`w-3 h-3 mr-1 ${nightMode ? 'text-gray-400' : 'text-gray-600'}`} />
@@ -127,7 +125,6 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center space-x-1 sm:space-x-2">
-            {/* Mobile location display/button */}
             {currentLocation ? (
               <div className={`sm:hidden flex items-center px-2 py-1 rounded text-xs ${nightMode ? 'bg-black bg-opacity-40' : 'bg-white bg-opacity-80 border border-gray-300'}`}>
                 <MapPin className={`w-3 h-3 mr-1 ${nightMode ? 'text-gray-400' : 'text-gray-600'}`} />
@@ -172,33 +169,28 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main View */}
       <main className="h-screen">
         {!isARMode ? (
           <SkyMap
             location={currentLocation}
             stars={isOfflineMode && offlinePack?.stars ? offlinePack.stars : stars}
+            solarSystem={solarSystem}
             currentTime={currentTime}
             onStarClick={handleStarClick}
             nightMode={nightMode}
             loading={starsLoading || locationLoading}
             showSatellites={showSatellites}
             deepSkyObjects={showDeepSky ? (isOfflineMode && offlinePack?.deepSky ? offlinePack.deepSky : deepSkyObjects) : []}
-            satellites={satellites}
           />
         ) : (
           <ARView nightMode={nightMode} onClose={() => setIsARMode(false)} />
         )}
       </main>
 
-      {/* Deep-sky overlay simple markers */}
       {showDeepSky && (
-        <div className="pointer-events-none absolute inset-0">
-          {/* Placeholder: deep-sky rendering occurred inside SkyMap if moved later */}
-        </div>
+        <div className="pointer-events-none absolute inset-0" />
       )}
 
-      {/* Location Panel */}
       <LocationPanel
         location={currentLocation}
         loading={locationLoading}
@@ -208,7 +200,6 @@ export default function HomePage() {
         nightMode={nightMode}
       />
 
-      {/* Control Panel */}
       <ControlPanel
         currentTime={currentTime}
         onTimeChange={setCurrentTime}
@@ -231,34 +222,22 @@ export default function HomePage() {
         onClose={() => setShowSettings(false)}
       />
 
-      {/* Star Information Panel */}
       {showInfo && (
         <StarInfoPanel
           star={selectedStar}
-          onClose={() => setShowInfo(false)}
+          onClose={handleCloseInfo}
           nightMode={nightMode}
         />
       )}
 
-      {/* Loading Overlay */}
-      {(starsLoading || locationLoading) && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
-          <div className={`${nightMode ? 'bg-space-dark' : 'bg-white border border-gray-300'} p-4 sm:p-6 rounded-lg flex flex-col items-center space-y-3 max-w-sm mx-4`}>
-            <div className="loading-spinner"></div>
-            <span className={`${nightMode ? 'text-white' : 'text-gray-800'} text-center`}>
-              {locationLoading ? 'Getting your location...' : 'Loading stars...'}
-            </span>
-            <div className={`text-xs text-center ${nightMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              {locationLoading ? 'Please allow location access' : 'This may take a moment'}
-            </div>
-            {(starsLoading || locationLoading) && (
-              <button
-                onClick={() => window.location.reload()}
-                className="astro-button text-xs mt-2"
-              >
-                Refresh if stuck
-              </button>
-            )}
+      {/* Error display */}
+      {starsError && !starsLoading && (
+        <div className="absolute bottom-4 right-4 bg-red-500 bg-opacity-90 text-white p-3 rounded-lg z-40 max-w-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-sm">{starsError}</span>
+            <button onClick={() => window.location.reload()} className="ml-2 text-xs underline">
+              Retry
+            </button>
           </div>
         </div>
       )}

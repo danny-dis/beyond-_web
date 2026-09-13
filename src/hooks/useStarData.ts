@@ -1,16 +1,19 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Location, Star, StarCatalogEntry, SkyContext, DeepSkyObject } from '@/types/astronomy'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Location, Star, StarCatalogEntry, SkyContext, CelestialObject } from '@/types/astronomy'
 import { processStarData } from '@/utils/astronomyCalculations'
-import { getVisibleStarsForLocation, fetchHygStars } from '@/utils/realAstronomyEngine'
+import { fetchHygStars } from '@/utils/realAstronomyEngine'
+import { getSolarSystemObjects } from '@/utils/solarSystem'
 
 interface UseStarDataReturn {
   stars: Star[]
+  solarSystem: CelestialObject[]
   loading: boolean
   error: string | null
   totalStars: number
   visibleStars: number
+  lastUpdated: Date | null
 }
 
 export const useStarData = (
@@ -18,69 +21,73 @@ export const useStarData = (
   currentTime: Date,
   screenWidth: number = typeof window !== 'undefined' ? window.innerWidth : 1920,
   screenHeight: number = typeof window !== 'undefined' ? window.innerHeight : 1080,
-  minimumMagnitude: number = 5.0 // Show more stars by default
+  minimumMagnitude: number = 5.0
 ): UseStarDataReturn => {
   const [starCatalog, setStarCatalog] = useState<StarCatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  // Load star catalog based on location - simplified for all devices
+  // Load star catalog from HYG API
   useEffect(() => {
+    let cancelled = false
+    
     const loadStarCatalog = async () => {
-      if (!location) return
+      if (!location) {
+        setLoading(false)
+        return
+      }
 
       try {
         setLoading(true)
-        // Loading stars for location
+        setError(null)
 
-        // Use HYG provider (stubbed) for broader dataset
-        const allStars = await fetchHygStars()
-
-        // Simple filtering that works on all devices
-        const visibleStars = allStars.filter(star => {
-          // Show bright stars (magnitude filter)
-          if (star.mag > minimumMagnitude) return false
-
-          // Basic location filtering
-          const lat = location.latitude
-
-          // Simple declination check
-          if (Math.abs(lat) < 30) {
-            // Near equator (like Kenya) - can see most stars
-            return star.dec >= -75 && star.dec <= 75
-          } else if (lat > 0) {
-            // Northern hemisphere
-            return star.dec >= lat - 85
-          } else {
-            // Southern hemisphere
-            return star.dec <= lat + 85
-          }
+        // Fetch from our local-backed API
+        const allStars = await fetchHygStars({ 
+          minMag: -2, 
+          maxMag: Math.max(minimumMagnitude, 6.5), 
+          limit: 8000 
         })
 
-        setStarCatalog(visibleStars)
-        setError(null)
-        // Stars loaded successfully
+        if (cancelled) return
+
+        if (allStars.length > 0) {
+          setStarCatalog(allStars)
+          setLastUpdated(new Date())
+          setError(null)
+        } else {
+          setError('No stars loaded - using fallback catalog')
+          setStarCatalog([])
+        }
       } catch (err) {
-        // Error loading star catalog
-        setError('Failed to load stars - please refresh')
+        if (cancelled) return
+        console.error('Error loading star catalog:', err)
+        setError('Failed to load stars - using fallback')
+        setStarCatalog([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     loadStarCatalog()
-  }, [location, currentTime, minimumMagnitude])
+    
+    // Reload every 5 minutes to catch time-based visibility changes
+    const interval = setInterval(loadStarCatalog, 5 * 60 * 1000)
+    
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [location?.latitude, location?.longitude, minimumMagnitude])
 
   // Process star data when location, time, or catalog changes
   const stars = useMemo(() => {
-    if (!location || !starCatalog.length) {
-      return []
-    }
+    if (!location || starCatalog.length === 0) return []
 
     const context: SkyContext = {
       location,
       dateTime: currentTime,
-      localSiderealTime: 0 // Will be calculated in processStarData
+      localSiderealTime: 0
     }
 
     try {
@@ -91,14 +98,27 @@ export const useStarData = (
     }
   }, [location, currentTime, starCatalog, screenWidth, screenHeight, minimumMagnitude])
 
+  // Calculate solar system objects
+  const solarSystem = useMemo(() => {
+    if (!location) return []
+    try {
+      return getSolarSystemObjects(location, currentTime)
+    } catch (err) {
+      console.error('Error calculating solar system:', err)
+      return []
+    }
+  }, [location, currentTime])
+
   const visibleStars = stars.filter(star => star.visible).length
 
   return {
     stars,
+    solarSystem,
     loading,
     error,
     totalStars: starCatalog.length,
-    visibleStars
+    visibleStars,
+    lastUpdated
   }
 }
 
@@ -118,7 +138,7 @@ export const useStarSearch = (stars: Star[]) => {
       star.name.toLowerCase().includes(query) ||
       (star.commonName && star.commonName.toLowerCase().includes(query)) ||
       star.constellation.toLowerCase().includes(query)
-    ).slice(0, 10) // Limit to 10 results
+    ).slice(0, 10)
 
     setSearchResults(results)
   }, [searchQuery, stars])
@@ -139,29 +159,21 @@ export const useStarFilter = () => {
     spectralClasses: ['O', 'B', 'A', 'F', 'G', 'K', 'M']
   })
 
-  const updateFilter = (key: string, value: any) => {
+  const updateFilter = useCallback((key: string, value: any) => {
     setFilters(prev => ({
       ...prev,
       [key]: value
     }))
-  }
+  }, [])
 
-  const filterStars = (stars: Star[]): Star[] => {
+  const filterStars = useCallback((stars: Star[]): Star[] => {
     return stars.filter(star => {
-      // Magnitude filter
-      if (star.magnitude > filters.minimumMagnitude) {
-        return false
-      }
-
-      // Spectral class filter
+      if (star.magnitude > filters.minimumMagnitude) return false
       const spectralClass = star.spectralClass.charAt(0).toUpperCase()
-      if (!filters.spectralClasses.includes(spectralClass)) {
-        return false
-      }
-
+      if (!filters.spectralClasses.includes(spectralClass)) return false
       return true
     })
-  }
+  }, [filters])
 
   return {
     filters,

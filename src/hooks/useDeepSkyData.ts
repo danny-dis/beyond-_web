@@ -23,21 +23,27 @@ export const useDeepSkyData = (
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+    
     const load = async () => {
       if (!location) return
       try {
         setLoading(true)
-        const data = await fetchOpenNgc()
-        setRawObjects(data)
-        setError(null)
+        const data = await fetchOpenNgc({ maxMag: magnitudeLimit, limit: 2000 })
+        if (!cancelled) {
+          setRawObjects(data)
+          setError(null)
+        }
       } catch (e) {
-        setError('Failed to load deep-sky catalog')
+        if (!cancelled) setError('Failed to load deep-sky catalog')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
-  }, [location])
+    
+    return () => { cancelled = true }
+  }, [location, magnitudeLimit])
 
   const objects: DeepSkyObject[] = useMemo(() => {
     if (!location || !rawObjects.length) return []
@@ -47,7 +53,9 @@ export const useDeepSkyData = (
     return rawObjects
       .filter((o: any) => (o.mag ?? 99) <= magnitudeLimit)
       .map((o: any) => {
-        const { azimuth, altitude } = equatorialToHorizontal(o.ra * 15, o.dec, lst, location.latitude)
+        const ra = o.rightAscension || o.ra || 0
+        const dec = o.declination || o.dec || 0
+        const { azimuth, altitude } = equatorialToHorizontal(ra * 15, dec, lst, location.latitude)
         const { x, y, visible } = horizontalToScreen(azimuth, altitude, screenWidth, screenHeight)
         const objectType = mapNgcType(o.type)
         const name = o.name || `${o.catalog || 'NGC'} ${o.id}`
@@ -56,8 +64,8 @@ export const useDeepSkyData = (
           name,
           catalog: o.catalog || 'NGC',
           objectType,
-          rightAscension: o.ra,
-          declination: o.dec,
+          rightAscension: ra,
+          declination: dec,
           magnitude: o.mag,
           sizeArcMin: o.size,
           x,
@@ -83,5 +91,3 @@ const mapNgcType = (t: string): DeepSkyObject['objectType'] => {
     default: return 'other'
   }
 }
-
-

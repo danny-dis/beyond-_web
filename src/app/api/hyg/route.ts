@@ -1,73 +1,72 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import type { StarCatalogEntry } from '@/types/astronomy'
 
-// Public source (HYG v3) CSV on GitHub
-const HYG_CSV_URL = 'https://raw.githubusercontent.com/astronexus/HYG-Database/master/hygdata_v3.csv'
+// Local HYG catalog - bundled with the app
+const LOCAL_HYG_PATH = join(process.cwd(), 'public', 'hygdata_v3.csv')
+// Remote fallback
+const REMOTE_HYG_URL = 'https://raw.githubusercontent.com/kiloquad/__HYG-Database/master/hygdata_v3.csv'
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url)
-  const minMag = parseFloat(searchParams.get('minMag') || '-99')
-  const maxMag = parseFloat(searchParams.get('maxMag') || '10')
-  const limit = parseInt(searchParams.get('limit') || '2000', 10)
-
+async function getHygCsv(minMag: number, maxMag: number, limit: number): Promise<StarCatalogEntry[]> {
+  let csv: string
+  
   try {
-    const resp = await fetch(HYG_CSV_URL, { cache: 'no-store' })
-    if (!resp.ok) {
-      return new Response(JSON.stringify({ error: 'Failed to fetch HYG CSV' }), { status: 502 })
+    // Try local first - fast and reliable
+    csv = readFileSync(LOCAL_HYG_PATH, 'utf-8')
+  } catch {
+    // Fallback to remote
+    try {
+      const resp = await fetch(REMOTE_HYG_URL, { next: { revalidate: 86400 } })
+      if (!resp.ok) throw new Error('Remote HYG failed')
+      csv = await resp.text()
+    } catch {
+      return []
     }
-    const csv = await resp.text()
-
-    const rows = csv.split(/\r?\n/)
-    const header = rows.shift() || ''
-    // HYG v3 header fields of interest
-    // id,proper,ra,dec,mag,spect,dist
-    const cols = header.split(',')
-    const idx = {
-      id: cols.indexOf('id'),
-      name: cols.indexOf('proper'),
-      ra: cols.indexOf('ra'),
-      dec: cols.indexOf('dec'),
-      mag: cols.indexOf('mag'),
-      spect: cols.indexOf('spect'),
-      dist: cols.indexOf('dist')
-    }
-
-    const results: StarCatalogEntry[] = []
-    for (const line of rows) {
-      if (!line) continue
-      const parts = safeSplitCsv(line, cols.length)
-      const mag = parseFloat(parts[idx.mag] || '')
-      if (Number.isFinite(mag)) {
-        if (mag < minMag || mag > maxMag) continue
-      }
-      const ra = parseFloat(parts[idx.ra] || '') // hours already in HYG
-      const dec = parseFloat(parts[idx.dec] || '')
-      if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
-      const id = parts[idx.id]
-      const name = parts[idx.name]
-      const spect = parts[idx.spect] || 'G'
-      const dist = parseFloat(parts[idx.dist] || '')
-
-      results.push({
-        id: String(id),
-        name: name || `HYG ${id}`,
-        constellation: '',
-        ra,
-        dec,
-        mag: Number.isFinite(mag) ? mag : 99,
-        spectralClass: spect,
-        distance: Number.isFinite(dist) ? dist : undefined
-      })
-      if (results.length >= limit) break
-    }
-
-    return Response.json(results)
-  } catch (e) {
-    return new Response(JSON.stringify({ error: 'HYG parsing failed' }), { status: 500 })
   }
+
+  const rows = csv.split(/\r?\n/)
+  const header = rows.shift() || ''
+  const cols = header.split(',')
+  const idx = {
+    id: cols.indexOf('id'),
+    name: cols.indexOf('proper'),
+    ra: cols.indexOf('ra'),
+    dec: cols.indexOf('dec'),
+    mag: cols.indexOf('mag'),
+    spect: cols.indexOf('spect'),
+    dist: cols.indexOf('dist'),
+    con: cols.indexOf('con'),
+    bayer: cols.indexOf('bayer'),
+    hd: cols.indexOf('hd'),
+  }
+
+  const results: StarCatalogEntry[] = []
+  for (const line of rows) {
+    if (!line) continue
+    const parts = safeSplitCsv(line, cols.length)
+    const mag = parseFloat(parts[idx.mag] || '')
+    if (Number.isFinite(mag) && (mag < minMag || mag > maxMag)) continue
+    const ra = parseFloat(parts[idx.ra] || '')
+    const dec = parseFloat(parts[idx.dec] || '')
+    if (!Number.isFinite(ra) || !Number.isFinite(dec)) continue
+    const dist = parseFloat(parts[idx.dist] || '')
+    
+    results.push({
+      id: String(parts[idx.id]) || `hyg-${results.length}`,
+      name: parts[idx.name] || `HD ${parts[idx.hd] || ''}`,
+      constellation: parts[idx.con] || '',
+      ra,
+      dec,
+      mag: Number.isFinite(mag) ? mag : 99,
+      spectralClass: parts[idx.spect] || 'G',
+      distance: Number.isFinite(dist) && dist > 0 ? dist : undefined,
+    })
+    if (results.length >= limit) break
+  }
+  return results
 }
 
-// Minimal CSV splitter supporting quoted fields without embedded newlines
 function safeSplitCsv(line: string, expected: number): string[] {
   const out: string[] = []
   let current = ''
@@ -75,7 +74,7 @@ function safeSplitCsv(line: string, expected: number): string[] {
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]
     if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++ }
       else { inQuotes = !inQuotes }
     } else if (ch === ',' && !inQuotes) {
       out.push(current)
@@ -89,4 +88,32 @@ function safeSplitCsv(line: string, expected: number): string[] {
   return out
 }
 
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const minMag = parseFloat(searchParams.get('minMag') || '-1.5')
+  const maxMag = parseFloat(searchParams.get('maxMag') || '7')
+  const limit = parseInt(searchParams.get('limit') || '2000', 10)
+  const constellation = searchParams.get('con') || ''
 
+  try {
+    let stars = await getHygCsv(minMag, maxMag, limit)
+    
+    // Filter by constellation if requested
+    if (constellation) {
+      stars = stars.filter(s => s.constellation?.toLowerCase() === constellation.toLowerCase())
+    }
+
+    return NextResponse.json({
+      count: stars.length,
+      source: 'HYG v3.0',
+      generated: new Date().toISOString(),
+      stars,
+    })
+  } catch (e) {
+    return NextResponse.json({ 
+      error: 'HYG parsing failed',
+      stars: [],
+      count: 0,
+    }, { status: 500 })
+  }
+}
